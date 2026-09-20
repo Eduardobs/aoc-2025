@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -75,7 +75,16 @@ func Solve(input string) (int64, int64) {
 			pairs = append(pairs, makeRectangle(vertices[i], vertices[j]))
 		}
 	}
-	sort.Slice(pairs, func(i, j int) bool { return pairs[i].area() > pairs[j].area() })
+	slices.SortFunc(pairs, func(a, b rectangle) int {
+		areaA, areaB := a.area(), b.area()
+		if areaA > areaB {
+			return -1
+		}
+		if areaA < areaB {
+			return 1
+		}
+		return 0
+	})
 	part1 := pairs[0].area()
 	edges := make([]rectangle, len(vertices))
 	for i := range vertices {
@@ -83,17 +92,14 @@ func Solve(input string) (int64, int64) {
 	}
 	var part2 int64
 	for _, candidate := range pairs {
-		valid := insideOrBoundary(float64(candidate.x1+candidate.x2)/2, float64(candidate.y1+candidate.y2)/2, vertices)
-		if !valid {
-			continue
-		}
+		valid := true
 		for _, edge := range edges {
 			if candidate.crossesInterior(edge) {
 				valid = false
 				break
 			}
 		}
-		if valid {
+		if valid && insideOrBoundary(float64(candidate.x1+candidate.x2)/2, float64(candidate.y1+candidate.y2)/2, vertices) {
 			part2 = candidate.area()
 			break
 		}

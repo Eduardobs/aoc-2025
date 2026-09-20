@@ -1,11 +1,20 @@
 package main
 
 import (
-	"strconv"
 	"strings"
 )
 
 type span struct{ start, end int }
+
+const maxInt64 = int64(^uint64(0) >> 1)
+
+func appendDigit(value int64, digit byte) int64 {
+	d := int64(digit - '0')
+	if value > (maxInt64-d)/10 {
+		return maxInt64
+	}
+	return value*10 + d
+}
 
 func evaluate(values []int64, operator byte) int64 {
 	if operator == '+' {
@@ -77,32 +86,46 @@ func Solve(input string) (int64, int64) {
 			break
 		}
 		op := operators[i][0]
-		horizontal := make([]int64, 0, height)
+		horizontal := int64(1)
+		if op == '+' {
+			horizontal = 0
+		}
 		for row := 0; row < height; row++ {
-			var digits strings.Builder
+			var value int64
+			hasDigit := false
 			for col := group.start; col < group.end; col++ {
 				if b := charAt(row, col); b >= '0' && b <= '9' {
-					digits.WriteByte(b)
+					value = appendDigit(value, b)
+					hasDigit = true
 				}
 			}
-			if digits.Len() > 0 {
-				value, _ := strconv.ParseInt(digits.String(), 10, 64)
-				horizontal = append(horizontal, value)
+			if hasDigit {
+				if op == '+' {
+					horizontal += value
+				} else {
+					horizontal *= value
+				}
 			}
 		}
-		vertical := make([]int64, 0, group.end-group.start)
+		vertical := int64(1)
+		if op == '+' {
+			vertical = 0
+		}
 		for col := group.start; col < group.end; col++ {
-			var digits strings.Builder
+			var value int64
 			for row := 0; row < height; row++ {
 				if b := charAt(row, col); b >= '0' && b <= '9' {
-					digits.WriteByte(b)
+					value = appendDigit(value, b)
 				}
 			}
-			value, _ := strconv.ParseInt(digits.String(), 10, 64)
-			vertical = append(vertical, value)
+			if op == '+' {
+				vertical += value
+			} else {
+				vertical *= value
+			}
 		}
-		part1 += evaluate(horizontal, op)
-		part2 += evaluate(vertical, op)
+		part1 += horizontal
+		part2 += vertical
 	}
 	return part1, part2
 }

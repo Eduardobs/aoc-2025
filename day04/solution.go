@@ -10,38 +10,41 @@ func Solve(input string) (int64, int64) {
 		return 0, 0
 	}
 	height, width := len(lines), len(lines[0])
-	present := make([][]bool, height)
-	neighbors := make([][]int, height)
-	queued := make([][]bool, height)
-	for r := range height {
-		present[r] = make([]bool, width)
-		neighbors[r] = make([]int, width)
-		queued[r] = make([]bool, width)
+	present := make([]bool, height*width)
+	neighbors := make([]uint8, height*width)
+	queued := make([]bool, height*width)
+	presentCount := 0
+	for r, line := range lines {
 		for c := range width {
-			present[r][c] = lines[r][c] == '@'
+			if line[c] == '@' {
+				present[r*width+c] = true
+				presentCount++
+			}
 		}
 	}
 	for r := range height {
 		for c := range width {
-			if !present[r][c] {
+			index := r*width + c
+			if !present[index] {
 				continue
 			}
 			for dr := -1; dr <= 1; dr++ {
 				for dc := -1; dc <= 1; dc++ {
 					nr, nc := r+dr, c+dc
-					if (dr != 0 || dc != 0) && nr >= 0 && nr < height && nc >= 0 && nc < width && present[nr][nc] {
-						neighbors[r][c]++
+					if (dr != 0 || dc != 0) && nr >= 0 && nr < height && nc >= 0 && nc < width && present[nr*width+nc] {
+						neighbors[index]++
 					}
 				}
 			}
 		}
 	}
-	queue := make([]point, 0)
+	queue := make([]point, 0, presentCount)
 	for r := range height {
 		for c := range width {
-			if present[r][c] && neighbors[r][c] < 4 {
+			index := r*width + c
+			if present[index] && neighbors[index] < 4 {
 				queue = append(queue, point{r, c})
-				queued[r][c] = true
+				queued[index] = true
 			}
 		}
 	}
@@ -49,20 +52,25 @@ func Solve(input string) (int64, int64) {
 	var part2 int64
 	for head := 0; head < len(queue); head++ {
 		p := queue[head]
-		if !present[p.row][p.col] {
+		index := p.row*width + p.col
+		if !present[index] {
 			continue
 		}
-		present[p.row][p.col] = false
+		present[index] = false
 		part2++
 		for dr := -1; dr <= 1; dr++ {
 			for dc := -1; dc <= 1; dc++ {
 				nr, nc := p.row+dr, p.col+dc
-				if (dr == 0 && dc == 0) || nr < 0 || nr >= height || nc < 0 || nc >= width || !present[nr][nc] {
+				if (dr == 0 && dc == 0) || nr < 0 || nr >= height || nc < 0 || nc >= width {
 					continue
 				}
-				neighbors[nr][nc]--
-				if neighbors[nr][nc] < 4 && !queued[nr][nc] {
-					queued[nr][nc] = true
+				neighbor := nr*width + nc
+				if !present[neighbor] {
+					continue
+				}
+				neighbors[neighbor]--
+				if neighbors[neighbor] < 4 && !queued[neighbor] {
+					queued[neighbor] = true
 					queue = append(queue, point{nr, nc})
 				}
 			}

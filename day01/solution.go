@@ -19,10 +19,19 @@ func Solve(input string) (int64, int64) {
 		if line[0] == 'L' {
 			direction = -1
 		}
-		for range distance {
-			position = (position + direction + 100) % 100
-			if position == 0 {
-				part2++
+		if distance > 0 {
+			part2 += int64(distance / 100)
+			remainder := distance % 100
+			if direction > 0 {
+				if position+remainder >= 100 {
+					part2++
+				}
+				position = (position + remainder) % 100
+			} else {
+				if position != 0 && remainder >= position {
+					part2++
+				}
+				position = (position - remainder + 100) % 100
 			}
 		}
 		if position == 0 {

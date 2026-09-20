@@ -1,15 +1,18 @@
 package main
 
 import (
+	"math/bits"
 	"strconv"
 	"strings"
 )
 
 const infinity int64 = 1 << 60
 
-type subset struct {
-	presses int64
-	effect  []int64
+type optionSet struct {
+	dimensions int
+	presses    []int64
+	effects    []int64
+	byParity   map[uint64][]int
 }
 
 func numbers(raw string) []int64 {
@@ -40,14 +43,16 @@ func parity(values []int64) uint64 {
 
 func stateKey(values []int64) string {
 	var b strings.Builder
+	b.Grow(8 * len(values))
 	for _, value := range values {
-		b.WriteString(strconv.FormatInt(value, 10))
-		b.WriteByte(',')
+		for shift := 0; shift < 64; shift += 8 {
+			b.WriteByte(byte(uint64(value) >> shift))
+		}
 	}
 	return b.String()
 }
 
-func minPresses(target []int64, options map[uint64][]subset, memo map[string]int64) int64 {
+func minPresses(target []int64, options *optionSet, memo map[string]int64) int64 {
 	allZero := true
 	for _, value := range target {
 		if value < 0 {
@@ -63,22 +68,25 @@ func minPresses(target []int64, options map[uint64][]subset, memo map[string]int
 		return cached
 	}
 	best := infinity
-	for _, choice := range options[parity(target)] {
-		next := make([]int64, len(target))
+	next := make([]int64, len(target))
+	for _, choice := range options.byParity[parity(target)] {
+		effect := options.effects[choice*options.dimensions : (choice+1)*options.dimensions]
 		valid := true
 		for i := range target {
-			if choice.effect[i] > target[i] {
+			if effect[i] > target[i] {
 				valid = false
 				break
 			}
-			next[i] = (target[i] - choice.effect[i]) / 2
 		}
 		if !valid {
 			continue
 		}
+		for i := range target {
+			next[i] = (target[i] - effect[i]) / 2
+		}
 		cost := minPresses(next, options, memo)
-		if cost < infinity && choice.presses+2*cost < best {
-			best = choice.presses + 2*cost
+		if cost < infinity && options.presses[choice]+2*cost < best {
+			best = options.presses[choice] + 2*cost
 		}
 	}
 	memo[key] = best
@@ -104,32 +112,45 @@ func Solve(input string) (int64, int64) {
 			buttons[i] = numbers(raw)
 		}
 		target := numbers(fields[len(fields)-1])
-		options := make(map[uint64][]subset)
-		for mask := 0; mask < 1<<uint(len(buttons)); mask++ {
-			effect := make([]int64, len(target))
-			var presses int64
-			for button, affected := range buttons {
-				if mask&(1<<uint(button)) == 0 {
-					continue
-				}
-				presses++
-				for _, index := range affected {
-					if index >= 0 && index < int64(len(effect)) {
-						effect[index]++
-					}
+		totalOptions := 1 << uint(len(buttons))
+		options := optionSet{
+			dimensions: len(target),
+			presses:    make([]int64, totalOptions),
+			effects:    make([]int64, totalOptions*len(target)),
+			byParity:   make(map[uint64][]int),
+		}
+		buttonParity := make([]uint64, len(buttons))
+		for button, affected := range buttons {
+			for _, index := range affected {
+				if index >= 0 && index < int64(len(target)) {
+					buttonParity[button] ^= 1 << uint(index)
 				}
 			}
-			p := parity(effect)
-			options[p] = append(options[p], subset{presses, effect})
+		}
+		parities := make([]uint64, totalOptions)
+		options.byParity[0] = append(options.byParity[0], 0)
+		for mask := 1; mask < totalOptions; mask++ {
+			button := bits.TrailingZeros(uint(mask))
+			previous := mask & (mask - 1)
+			options.presses[mask] = options.presses[previous] + 1
+			currentEffect := options.effects[mask*len(target) : (mask+1)*len(target)]
+			copy(currentEffect, options.effects[previous*len(target):(previous+1)*len(target)])
+			for _, index := range buttons[button] {
+				if index >= 0 && index < int64(len(currentEffect)) {
+					currentEffect[index]++
+				}
+			}
+			parities[mask] = parities[previous] ^ buttonParity[button]
+			options.byParity[parities[mask]] = append(options.byParity[parities[mask]], mask)
 		}
 		bestLights := infinity
-		for _, choice := range options[lights] {
-			if choice.presses < bestLights {
-				bestLights = choice.presses
+		for _, choice := range options.byParity[lights] {
+			if options.presses[choice] < bestLights {
+				bestLights = options.presses[choice]
 			}
 		}
 		part1 += bestLights
-		part2 += minPresses(target, options, make(map[string]int64))
+		part2 += minPresses(target, &options, make(map[string]int64))
 	}
 	return part1, part2
 }

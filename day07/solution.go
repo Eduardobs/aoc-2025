@@ -11,12 +11,14 @@ func Solve(input string) (int64, int64) {
 	start := strings.IndexByte(lines[0], 'S')
 	active := make([]bool, width)
 	ways := make([]int64, width)
+	nextActive := make([]bool, width)
+	nextWays := make([]int64, width)
 	active[start] = true
 	ways[start] = 1
 	var part1 int64
 	for _, line := range lines[1:] {
-		nextActive := append([]bool(nil), active...)
-		nextWays := append([]int64(nil), ways...)
+		copy(nextActive, active)
+		copy(nextWays, ways)
 		for col := 0; col < width; col++ {
 			if line[col] != '^' {
 				continue
@@ -42,7 +44,8 @@ func Solve(input string) (int64, int64) {
 				}
 			}
 		}
-		active, ways = nextActive, nextWays
+		active, nextActive = nextActive, active
+		ways, nextWays = nextWays, ways
 	}
 	var part2 int64
 	for _, count := range ways {

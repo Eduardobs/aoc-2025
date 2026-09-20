@@ -1,7 +1,7 @@
 package main
 
 import (
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -9,7 +9,7 @@ import (
 type box struct{ x, y, z int64 }
 type edge struct {
 	distance int64
-	a, b     int
+	a, b     int32
 }
 
 type disjointSet struct {
@@ -26,10 +26,11 @@ func newDisjointSet(n int) *disjointSet {
 }
 
 func (d *disjointSet) find(x int) int {
-	if d.parent[x] != x {
-		d.parent[x] = d.find(d.parent[x])
+	for d.parent[x] != x {
+		d.parent[x] = d.parent[d.parent[x]]
+		x = d.parent[x]
 	}
-	return d.parent[x]
+	return x
 }
 
 func (d *disjointSet) unite(a, b int) bool {
@@ -67,47 +68,160 @@ func parseBoxes(input string) []box {
 	return result
 }
 
-func solveWithLimit(input string, limit int) (int64, int64) {
-	boxes := parseBoxes(input)
-	edges := make([]edge, 0, len(boxes)*(len(boxes)-1)/2)
-	for i := range boxes {
-		for j := i + 1; j < len(boxes); j++ {
-			dx, dy, dz := boxes[i].x-boxes[j].x, boxes[i].y-boxes[j].y, boxes[i].z-boxes[j].z
-			edges = append(edges, edge{dx*dx + dy*dy + dz*dz, i, j})
+func squaredDistance(a, b box) int64 {
+	dx, dy, dz := a.x-b.x, a.y-b.y, a.z-b.z
+	return dx*dx + dy*dy + dz*dz
+}
+
+func edgeLess(a, b edge) bool {
+	return a.distance < b.distance ||
+		(a.distance == b.distance && (a.a < b.a || (a.a == b.a && a.b < b.b)))
+}
+
+// retainShortest keeps the limit globally shortest edges in a max-heap.
+func retainShortest(edges []edge, candidate edge, limit int) []edge {
+	if limit <= 0 {
+		return edges
+	}
+	if len(edges) < limit {
+		edges = append(edges, candidate)
+		for child := len(edges) - 1; child > 0; {
+			parent := (child - 1) / 2
+			if !edgeLess(edges[parent], edges[child]) {
+				break
+			}
+			edges[parent], edges[child] = edges[child], edges[parent]
+			child = parent
+		}
+		return edges
+	}
+	if !edgeLess(candidate, edges[0]) {
+		return edges
+	}
+	edges[0] = candidate
+	for parent := 0; ; {
+		child := parent*2 + 1
+		if child >= len(edges) {
+			break
+		}
+		if right := child + 1; right < len(edges) && edgeLess(edges[child], edges[right]) {
+			child = right
+		}
+		if !edgeLess(edges[parent], edges[child]) {
+			break
+		}
+		edges[parent], edges[child] = edges[child], edges[parent]
+		parent = child
+	}
+	return edges
+}
+
+// connectionThreshold finds the lowest distance at which the complete graph
+// becomes connected. A dense Prim pass avoids materializing all O(n²) edges.
+func connectionThreshold(boxes []box) int64 {
+	if len(boxes) < 2 {
+		return 0
+	}
+	used := make([]bool, len(boxes))
+	distances := make([]int64, len(boxes))
+	known := make([]bool, len(boxes))
+	known[0] = true
+	var threshold int64
+	thresholdSet := false
+	for step := 0; step < len(boxes); step++ {
+		next := -1
+		for node := range boxes {
+			if !used[node] && known[node] && (next < 0 || distances[node] < distances[next]) {
+				next = node
+			}
+		}
+		used[next] = true
+		if step > 0 && (!thresholdSet || distances[next] > threshold) {
+			threshold = distances[next]
+			thresholdSet = true
+		}
+		for node := range boxes {
+			if used[node] {
+				continue
+			}
+			distance := squaredDistance(boxes[next], boxes[node])
+			if !known[node] || distance < distances[node] {
+				distances[node], known[node] = distance, true
+			}
 		}
 	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].distance != edges[j].distance {
-			return edges[i].distance < edges[j].distance
+	return threshold
+}
+
+func solveWithLimit(input string, limit int) (int64, int64) {
+	boxes := parseBoxes(input)
+	totalEdges := len(boxes) * (len(boxes) - 1) / 2
+	capacity := min(max(limit, 0), totalEdges)
+	edges := make([]edge, 0, capacity)
+	for i := range boxes {
+		for j := i + 1; j < len(boxes); j++ {
+			candidate := edge{squaredDistance(boxes[i], boxes[j]), int32(i), int32(j)}
+			edges = retainShortest(edges, candidate, limit)
 		}
-		if edges[i].a != edges[j].a {
-			return edges[i].a < edges[j].a
+	}
+	slices.SortFunc(edges, func(a, b edge) int {
+		if edgeLess(a, b) {
+			return -1
 		}
-		return edges[i].b < edges[j].b
+		if a == b {
+			return 0
+		}
+		return 1
 	})
 	dsu := newDisjointSet(len(boxes))
-	var part1, part2 int64
+	var part1 int64
 	for i, connection := range edges {
-		merged := dsu.unite(connection.a, connection.b)
+		a, b := int(connection.a), int(connection.b)
+		merged := dsu.unite(a, b)
 		if i+1 == limit {
-			sizes := make([]int, 0)
+			largest := [3]int{}
 			for node := range boxes {
 				if dsu.find(node) == node {
-					sizes = append(sizes, dsu.size[node])
+					size := dsu.size[node]
+					for j := range largest {
+						if size > largest[j] {
+							size, largest[j] = largest[j], size
+						}
+					}
 				}
 			}
-			sort.Sort(sort.Reverse(sort.IntSlice(sizes)))
 			part1 = 1
-			for j := 0; j < 3 && j < len(sizes); j++ {
-				part1 *= int64(sizes[j])
+			for _, size := range largest {
+				if size != 0 {
+					part1 *= int64(size)
+				}
 			}
 		}
 		if merged && dsu.components == 1 {
-			part2 = boxes[connection.a].x * boxes[connection.b].x
 			break
 		}
 	}
-	return part1, part2
+
+	if len(boxes) < 2 {
+		return part1, 0
+	}
+	threshold := connectionThreshold(boxes)
+	dsu = newDisjointSet(len(boxes))
+	for i := range boxes {
+		for j := i + 1; j < len(boxes); j++ {
+			if squaredDistance(boxes[i], boxes[j]) < threshold {
+				dsu.unite(i, j)
+			}
+		}
+	}
+	for i := range boxes {
+		for j := i + 1; j < len(boxes); j++ {
+			if squaredDistance(boxes[i], boxes[j]) == threshold && dsu.unite(i, j) && dsu.components == 1 {
+				return part1, boxes[i].x * boxes[j].x
+			}
+		}
+	}
+	return part1, 0
 }
 
 func Solve(input string) (int64, int64) { return solveWithLimit(input, 1000) }
